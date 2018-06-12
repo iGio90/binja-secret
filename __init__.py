@@ -16,6 +16,7 @@ class SecRet(object):
 
         self.module_name = None
         self.frida_script = None
+        self.dumps_path = ''
 
         self.segments_start = 0
         self.current_segments = []
@@ -38,9 +39,8 @@ class SecRet(object):
                 hex_addr = parts[1]
             else:
                 hex_addr = '0x%4x' % int(parts[1])
-            dumps_path = session_path + '/' + hex_addr
             if parts[0] == '1':
-                with open(dumps_path + '/context.json', 'w') as f:
+                with open(session_path + '/context.json', 'w') as f:
                     f.write(parts[2])
 
                 s.set_current_function(int(hex_addr, 16))
@@ -48,18 +48,18 @@ class SecRet(object):
 
                 s.bv.navigate('Graph:' + s.bv.view_type, int(hex_addr, 16))
             elif parts[0] == '2':
-                with open(dumps_path + '/' + ('0x%4x' % int(parts[2], 16)), 'wb') as f:
+                with open(session_path + '/' + ('0x%4x' % int(parts[2], 16)), 'wb') as f:
                     f.write(payload)
                     s.add_segment(int(parts[2], 16), payload)
             elif parts[0] == '3':
-                if os.path.exists(dumps_path):
-                    shutil.rmtree(dumps_path)
-                os.mkdir(dumps_path)
+                if os.path.exists(session_path):
+                    shutil.rmtree(session_path)
+                os.mkdir(session_path)
 
                 s.module_base = int(parts[2], 16)
                 s.module_size = int(parts[3])
                 s.module_tail = s.module_base + s.module_size
-                with open(dumps_path + '/info.json', 'w') as f:
+                with open(session_path + '/info.json', 'w') as f:
                     f.write(json.dumps({'base': s.module_base, 'size': s.module_size}))
         else:
             print(message)
@@ -117,11 +117,6 @@ class SecRet(object):
         if os.path.exists(session_path):
             if self.bv is not None:
                 self.clean_segments(self.bv)
-                for f in os.listdir(session_path):
-                    if f.startswith('0x'):
-                        function = self.bv.get_functions_containing(int(f, 16))[0]
-                        function.set_auto_instr_highlight(int(f, 16), HighlightStandardColor.NoHighlightColor)
-
             shutil.rmtree(session_path)
         os.mkdir(session_path)
 
@@ -132,6 +127,29 @@ class SecRet(object):
             bv.parent_view.remove(self.segments_start, len(bv.parent_view) - self.segments_start)
             self.current_segments = []
             self.segments_start = 0
+
+    def dump_segment(self, ptr):
+        print('-> trying to dump memory segment of 0x%x' % ptr)
+        try:
+            range_info = self.frida_script.exports.rangeinfo(ptr)
+        except frida.InvalidOperationError:
+            self.frida_script = None
+            range_info = None
+        except Exception as e:
+            print('-> error while dumping memory segment from device')
+            print(e)
+            range_info = None
+
+        if range_info is not None:
+            data = self.frida_script.exports.dumprange(range_info['base'], range_info['size'])
+            if data is not None:
+                print('-> adding new segment at %s of size %u' % (range_info['base'], len(data)))
+                self.add_segment(ptr, data)
+                with open(session_path + '/' + ('%s' % range_info['base']), 'wb') as f:
+                    f.write(data)
+                s.add_segment(int(range_info['base'], 16), data)
+                return 1
+        return 0
 
     def emulate(self, bv, addr=0):
         if self.emulator is None:
@@ -158,12 +176,8 @@ class SecRet(object):
             nav_view = 'Graph:'
         if not bv.is_valid_offset(ptr):
             if self.frida_script is not None:
-                print('-> trying to dump memory segment of ' + hex(ptr))
-                data = self.frida_script.exports.dumprange(ptr)
-                if data is None or len(data) == 0:
+                if self.dump_segment(ptr) == 0:
                     ptr = None
-                else:
-                    self.add_segment(ptr, data)
             else:
                 ptr = None
 
@@ -189,20 +203,19 @@ class SecRet(object):
         self.bv = bv
         self.emulator = None
         self.clean_segments(bv)
-        dumps_path = session_path + ('/0x%4x' % addr)
-        with open(dumps_path + '/context.json', 'r') as f:
+        with open(session_path + '/context.json', 'r') as f:
             self.current_context = json.loads(f.read())
 
-        with open(dumps_path + '/info.json', 'r') as f:
+        with open(session_path + '/info.json', 'r') as f:
             info = json.loads(f.read())
             self.module_base = info['base']
             self.module_size = info['size']
             self.module_tail = self.module_base + self.module_size
 
         self.set_current_function(addr)
-        for f in os.listdir(dumps_path):
+        for f in os.listdir(session_path):
             if f.startswith('0x'):
-                with open(dumps_path + '/' + f, 'rb') as ff:
+                with open(session_path + '/' + f, 'rb') as ff:
                     self.add_segment(int(f, 16), ff.read())
 
     def set_current_function(self, addr):
@@ -226,9 +239,9 @@ class SecRet(object):
 s = SecRet()
 
 PluginCommand.register_for_address('** attach **', '', s.attach)
-PluginCommand.register_for_address('** restore session **', '', s.restore_session, lambda x, y: os.path.exists(session_path + ('/0x%4x' % y)))
-PluginCommand.register_for_address('** emulate **', '', s.emulate, lambda x, y: s.current_function is not None and s.current_function_address != y)
-PluginCommand.register_for_address('** emulate next **', '', s.emulate_next, lambda x, y: s.emulator is not None or s.current_function_address == y)
-PluginCommand.register_for_address('** emulate instruction **', '', s.emulate_instr, lambda x, y: s.current_function is not None and s.current_function_address != y)
+PluginCommand.register_for_address('** restore session **', '', s.restore_session, lambda x, y: os.path.exists(session_path))
+PluginCommand.register_for_address('** emulate to selected**', '', s.emulate, lambda x, y: s.current_function is not None and s.current_function_address != y)
+PluginCommand.register_for_address('** emulate next**', '', s.emulate_next, lambda x, y: s.emulator is not None or s.current_function_address == y)
+PluginCommand.register_for_address('** emulate selected **', '', s.emulate_instr, lambda x, y: s.current_function is not None and s.current_function_address != y)
 PluginCommand.register_for_address('** instruction info **', '', s.print_instruction_info)
 PluginCommand.register_for_address('** jump to ptr **', '', s.jump_to_ptr)

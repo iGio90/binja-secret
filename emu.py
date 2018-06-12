@@ -100,10 +100,6 @@ class Emu(object):
         op = {}
         for i in self.md.disasm(bytes(uc.mem_read(address, size)), address):
             print("0x%x:\t%s\t%s" % (parsed_address, i.mnemonic, i.op_str))
-            if len(i.regs_read) > 0:
-                print("\tImplicit registers read: "),
-                for r in i.regs_read:
-                    print("%s " % i.reg_name(r)),
 
             if len(i.operands) > 0:
                 for o in i.operands:
@@ -159,6 +155,8 @@ class Emu(object):
                       % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
             except:
                 print('-> hook mem access: failed to read at 0x%x' % address)
+                if self._secret.frida_script is not None:
+                    self._secret.dump_segment(address)
 
     def start(self, exit=0):
         if exit > 0:

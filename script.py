@@ -49,14 +49,21 @@ def get_script(module_name, target):
         '''
     return script + '''
         rpc.exports = {
-            dumprange: function(addr) {
+            rangeinfo: function(addr) {
                 var range = Process.findRangeByAddress(ptr(addr));
                 if (range === null) {
                     return null;
                 }
+                return {
+                    'base': range.base,
+                    'size': range.size
+                };                
+            },
+            dumprange: function(addr, len) {
                 try {
-                    Memory.protect(range.base, range.size, 'rwx');
-                    return Memory.readByteArray(range.base, range.size);                
+                    var p = ptr(addr);
+                    Memory.protect(p, len, 'rwx');
+                    return Memory.readByteArray(p, len);
                 } catch(err) {
                     return null;
                 }
