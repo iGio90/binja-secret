@@ -28,40 +28,25 @@ class Emu(object):
         self.current_virtual_address = self.entry
 
         self.break_steps = 0
+        self.previous_instr_info = {
+            'address': 0,
+            'virtual_address': 0,
+            'regs': []
+        }
 
+        self.mapped_segment = {}
         self._context_setup()
 
     def apply_patch(self, addr, patch):
         self.uc.mem_write(addr + self._secret.module_base, patch)
 
     def _context_setup(self):
-        last_mapped_off = 0
-
-        map_base = 1024 * 1024 * (((self._secret.module_base / 1024) / 1024) - 1)
-        map_size = 1024 * 1024 * (((self._secret.module_size / 1024) / 1024) + 1)
-        self.uc.mem_map(map_base, map_size)
-        self.uc.mem_write(self._secret.module_base, self._bv.read(0, self._secret.module_size))
-        print('-> mapping 0x%x at 0x%x' % (map_size, map_base))
-
         stlist = sorted(self._bv.segments, key=lambda x: x.start, reverse=False)
         for segment in stlist:
             if segment.start < self._secret.module_size:
+                # assuming frida will dump target module we will have it mapped later
                 continue
-
-            map_base = 1024 * 1024 * (((segment.start / 1024) / 1024) - 1)
-            if map_base < 0:
-                map_base = 0
-            map_size = 1024 * 1024 * (((segment.length / 1024) / 1024) + 1)
-            if map_base < last_mapped_off:
-                map_base = last_mapped_off
-            last_mapped_off = map_base + map_size
-            print('-> mapping 0x%x at 0x%x' % (map_size, map_base))
-            while segment.start + segment.length > last_mapped_off:
-                map_size += 1024
-                last_mapped_off += 1024
-
-            self.uc.mem_map(map_base, map_size)
-            self.uc.mem_write(segment.start, self._bv.read(segment.start, segment.length))
+            self.map_segment(segment.start, self._bv.read(segment.start, segment.length))
 
         self.uc.reg_write(UC_ARM_REG_R0, int(self._secret.current_context['r0'], 16))
         self.uc.reg_write(UC_ARM_REG_R1, int(self._secret.current_context['r1'], 16))
@@ -83,6 +68,29 @@ class Emu(object):
         self.uc.hook_add(UC_HOOK_CODE, self.hook_instr)
         self.uc.hook_add(UC_HOOK_MEM_WRITE | UC_HOOK_MEM_READ, self.hook_mem_access)
 
+    def map_segment(self, address, data):
+        data_len = len(data)
+        map_base = 1024 * 1024 * (((address / 1024) / 1024) - 1)
+        map_base = map_base & 0xff000000
+
+        if '0x%x' % map_base in self.mapped_segment:
+            ex_map_tail = self.mapped_segment['0x%x' % map_base]
+            if address + data_len < ex_map_tail:
+                print('-> writing data into an existing segment at 0x%x' % (address))
+                self.uc.mem_write(address, data)
+                return
+            map_base = ex_map_tail
+
+        map_tail = map_base + 0xffffff + 1
+
+        while address + data_len > map_tail:
+            map_tail += 0xffffff + 1
+
+        print('-> mapping 0x%x at 0x%x' % (data_len, map_base))
+        self.uc.mem_map(map_base, map_tail - map_base)
+        self.uc.mem_write(address, data)
+        self.mapped_segment['0x%x' % map_base] = map_tail
+
     def parse_address(self, address):
         if self._secret.module_base < address < self._secret.module_tail:
             return address - self._secret.module_base
@@ -99,11 +107,18 @@ class Emu(object):
                 return
             self.break_steps += 1
 
-        print("-> Tracing instruction at 0x%x, instruction size = 0x%x" % (parsed_address, size))
+        if self.previous_instr_info['address'] > 0:
+            c = '\n'
+            for r in self.previous_instr_info['regs']:
+                c += '\n%s 0x%x' % (r['r'], uc.reg_read(r['o']))
+            self.append_comment(c, self.previous_instr_info['address'])
+
+        self.previous_instr_info['address'] = parsed_address
+        self.previous_instr_info['virtual_address'] = address
         op = {}
+        print("-> Tracing instruction at 0x%x, instruction size = 0x%x" % (parsed_address, size))
         for i in self.md.disasm(bytes(uc.mem_read(address, size)), address):
             print("0x%x:\t%s\t%s" % (parsed_address, i.mnemonic, i.op_str))
-
             if len(i.operands) > 0:
                 for o in i.operands:
                     try:
@@ -113,12 +128,14 @@ class Emu(object):
                         op[s] = ''
                     except:
                         continue
+        self.previous_instr_info['regs'] = []
         c = ''
         for reg in op:
             if len(c) > 0:
                 c += '\n'
-            c += reg + ' = ' + ('0x%x' % uc.reg_read(
-                getattr(utils.get_arch_consts(self.uc_arch), utils.get_reg_tag(self.uc_arch) + reg)))
+            uc_reg = getattr(utils.get_arch_consts(self.uc_arch), utils.get_reg_tag(self.uc_arch) + reg)
+            c += reg + ' = ' + ('0x%x' % uc.reg_read(uc_reg))
+            self.previous_instr_info['regs'].append({'r': reg, 'o': uc_reg})
         self.set_current_address(parsed_address, c)
 
     def set_current_address(self, addr, comment=None, hightlight=True):
@@ -137,6 +154,17 @@ class Emu(object):
                     self._bv.navigate('Graph:' + self._bv.view_type, addr)
             except:
                 print('-> set current address: failed to read at 0x%x' % addr)
+
+    def append_comment(self, addr, c):
+        try:
+            function = self._bv.get_functions_containing(addr)[0]
+            oc = function.get_comment_at(addr)
+            if oc is None:
+                oc = ''
+            oc += c
+            function.set_comment_at(addr, oc)
+        except:
+            pass
 
     def hook_mem_access(self, uc, access, address, size, value, user_data):
         if access == UC_MEM_WRITE:

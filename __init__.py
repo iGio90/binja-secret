@@ -96,6 +96,7 @@ class SecRet(object):
         time.sleep(1)
 
         apps = self.frida_device.enumerate_applications()
+        apps = sorted(apps, key=lambda x: x.name, reverse=False)
         apps_labels = []
         for app in apps:
             apps_labels.append(app.name.encode('ascii', 'ignore').decode('ascii'))
@@ -149,6 +150,8 @@ class SecRet(object):
                 with open(session_path + '/' + ('%s' % range_info['base']), 'wb') as f:
                     f.write(data)
                 s.add_segment(int(range_info['base'], 16), data)
+                if self.emulator is not None:
+                    self.emulator.map_segment(int(range_info['base'], 16), data)
                 return 1
         return 0
 

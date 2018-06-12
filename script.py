@@ -1,6 +1,7 @@
 def get_script(module_name, target):
     script = 'var base;'
     script += 'var target;'
+    script += 'var moduleName = "' + module_name + '";'
     script += '''
         function sendStuffsAndWait(c) {
             console.log('-> now in context of: ' + base.add(target));   
@@ -14,7 +15,11 @@ def get_script(module_name, target):
                 } catch(err) {
                     continue;
                 }
-                if (range !== null && typeof range['file'] === 'undefined') {
+                if (range !== null) {
+                    if (typeof range['file'] !== 'undefined' && range['file'] !== moduleName) {
+                        continue;
+                    }
+                    
                     if (typeof ranges[range.base] === 'undefined') {
                         ranges[range.base] = range
                     }        
@@ -36,7 +41,7 @@ def get_script(module_name, target):
         }    
     '''
     script += 'setTimeout(function() {'
-    script += 'var m = Process.findModuleByName("' + module_name + '");'
+    script += 'var m = Process.findModuleByName(moduleName);'
     script += 'base = m.base;'
     script += 'target = ' + target + ';'
     script += '''
