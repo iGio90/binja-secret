@@ -24,7 +24,8 @@ class Emu(object):
         self.md = Cs(CS_ARCH_ARM, CS_MODE_ARM)
         self.md.detail = True
 
-        self.current_address = 0
+        self.current_address = self._secret.current_function_address
+        self.current_virtual_address = self.entry
 
         self.break_steps = 0
 
@@ -33,11 +34,11 @@ class Emu(object):
     def _context_setup(self):
         last_mapped_off = 0
 
-        print('base 0x%x - len 0x%x' % (self._secret.module_base, self._secret.module_size))
         map_base = 1024 * 1024 * (((self._secret.module_base / 1024) / 1024) - 1)
         map_size = 1024 * 1024 * (((self._secret.module_size / 1024) / 1024) + 1)
         self.uc.mem_map(map_base, map_size)
         self.uc.mem_write(self._secret.module_base, self._bv.read(0, self._secret.module_size))
+        print('-> mapping 0x%x at 0x%x' % (map_size, map_base))
 
         stlist = sorted(self._bv.segments, key=lambda x: x.start, reverse=False)
         for segment in stlist:
@@ -51,7 +52,7 @@ class Emu(object):
             if map_base < last_mapped_off:
                 map_base = last_mapped_off
             last_mapped_off = map_base + map_size
-            print('-> mapping ' + str(map_size) + ' at ' + hex(map_base))
+            print('-> mapping 0x%x at 0x%x' % (map_size, map_base))
             while segment.start + segment.length > last_mapped_off:
                 map_size += 1024
                 last_mapped_off += 1024
@@ -91,7 +92,7 @@ class Emu(object):
             if self.break_steps == 2:
                 uc.emu_stop()
                 self.break_steps = 0
-                self.set_current_bv_address(parsed_address, None, False)
+                self.set_current_address(parsed_address, None, False)
                 return
             self.break_steps += 1
 
@@ -119,10 +120,11 @@ class Emu(object):
                 c += '\n'
             c += reg + ' = ' + ('0x%x' % uc.reg_read(
                 getattr(utils.get_arch_consts(self.uc_arch), utils.get_reg_tag(self.uc_arch) + reg)))
-        self.set_current_bv_address(parsed_address, c)
+        self.set_current_address(parsed_address, c)
 
-    def set_current_bv_address(self, addr, comment=None, hightlight=True):
+    def set_current_address(self, addr, comment=None, hightlight=True):
         self.current_address = addr
+        self.current_virtual_address = addr + self._secret.module_base
         try:
             function = self._bv.get_functions_containing(addr)[0]
             if hightlight:
@@ -161,17 +163,16 @@ class Emu(object):
     def start(self, exit=0):
         if exit > 0:
             self.exit = self._secret.module_base + exit
-        self._start_emu(self.entry, self.exit)
+        self._start_emu(self.current_virtual_address, self.exit)
 
     def emulate_instr(self, addr):
-        self.current_address = self._secret.module_base + addr
+        self.current_address = addr
+        self.current_virtual_address = self._secret.module_base + addr
         self.emulate_next()
 
     def emulate_next(self):
         self.break_steps = 1
-        if self.current_address == 0:
-            self.current_address = self.entry
-        self._start_emu(self.current_address, self.current_address + 8)
+        self._start_emu(self.current_virtual_address, self.current_virtual_address + 8)
 
     def _start_emu(self, s, e):
         try:

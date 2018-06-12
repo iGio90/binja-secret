@@ -1,7 +1,5 @@
 def get_script(module_name, target):
-    script = 'var sleepingTarget;'
-    script += 'var sleeps = [];'
-    script += 'var base;'
+    script = 'var base;'
     script += 'var target;'
     script += '''
         function sendStuffsAndWait(c) {
@@ -31,11 +29,8 @@ def get_script(module_name, target):
                 } catch(err) {}
             }
             
-            sleepingTarget = sleeps.length;
-            var ss = sleeps.length;
-            sleeps[sleepingTarget] = true;
-            console.log('-> sleeping: ' + base.add(target) + ' with targetId ' + ss);
-            while(sleeps[ss]) {
+            console.log('-> sleeping: ' + base.add(target));
+            while(true) {
                 Thread.sleep(1 / 50);
             }
         }    

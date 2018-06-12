@@ -139,8 +139,9 @@ class SecRet(object):
         self.emulator.start(addr)
 
     def emulate_instr(self, bv, addr=0):
-        if self.emulator is not None:
-            self.emulator.emulate_instr(addr)
+        if self.emulator is None:
+            self.emulator = emu.Emu(self, bv, addr)
+        self.emulator.emulate_instr(addr)
 
     def emulate_next(self, bv, addr=0):
         if self.emulator is None:
