@@ -1,11 +1,12 @@
 def get_script(module_name, target):
-    script = 'var base;'
-    script += 'var target;'
+    script = 'var m, base, target;'
     script += 'var moduleName = "' + module_name + '";'
     script += '''
         function sendStuffsAndWait(c) {
             console.log('-> now in context of: ' + base.add(target));   
+            
             var ranges = {};
+            
             send("1:::" + target + ":::" + JSON.stringify(c));
             
             for (reg in c) {
@@ -16,22 +17,32 @@ def get_script(module_name, target):
                     continue;
                 }
                 if (range !== null) {
-                    if (typeof range['file'] !== 'undefined' && range['file'] !== moduleName) {
+                    if (typeof range['file'] !== 'undefined') {
                         continue;
                     }
-                    
                     if (typeof ranges[range.base] === 'undefined') {
                         ranges[range.base] = range
-                    }        
+                    }
                 }
             }
             
+            var trsegs = Module.enumerateRangesSync(moduleName, 'r--');
+            for (r in trsegs) {
+                ranges[trsegs[r]['base']] = trsegs[r];
+            }
+            
+            console.log(JSON.stringify(ranges));
+            
             for (r in ranges) {
+                console.log(r);
+                console.log(ranges[r]);
+                
                 var range = ranges[r];
                 try {
-                    Memory.protect(range.base, range.size, 'rwx')
-                    send("2:::" + target + ":::" + range.base, Memory.readByteArray(range.base, range.size));
-                } catch(err) {}
+                    send("2:::" + target + ":::" + range['base'], Memory.readByteArray(range['base'], range['size']));
+                } catch(err) {
+                    console.log('-> error dumping range ' + range['base'] + ': ' + err);
+                }
             }
             
             console.log('-> sleeping: ' + base.add(target));
@@ -41,7 +52,7 @@ def get_script(module_name, target):
         }    
     '''
     script += 'setTimeout(function() {'
-    script += 'var m = Process.findModuleByName(moduleName);'
+    script += 'm = Process.findModuleByName(moduleName);'
     script += 'base = m.base;'
     script += 'target = ' + target + ';'
     script += '''

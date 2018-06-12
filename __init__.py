@@ -100,8 +100,8 @@ class SecRet(object):
         apps_labels = []
         for app in apps:
             apps_labels.append(app.name.encode('ascii', 'ignore').decode('ascii'))
-        choice_f = ChoiceField("Apps", apps_labels)
-        get_form_input([choice_f], "Select application to spawn")
+        choice_f = ChoiceField("-> spawn and attach", apps_labels)
+        get_form_input([choice_f], "Target app name")
         if choice_f.result is not None:
             package_name = apps[choice_f.result].identifier
             pid = self.frida_device.spawn([package_name])

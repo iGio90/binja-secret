@@ -46,6 +46,7 @@ class Emu(object):
             if segment.start < self._secret.module_size:
                 # assuming frida will dump target module we will have it mapped later
                 continue
+            print('-> segment start at 0x%x' % segment.start)
             self.map_segment(segment.start, self._bv.read(segment.start, segment.length))
 
         self.uc.reg_write(UC_ARM_REG_R0, int(self._secret.current_context['r0'], 16))
@@ -73,23 +74,25 @@ class Emu(object):
         map_base = 1024 * 1024 * (((address / 1024) / 1024) - 1)
         map_base = map_base & 0xff000000
 
-        if '0x%x' % map_base in self.mapped_segment:
-            ex_map_tail = self.mapped_segment['0x%x' % map_base]
-            if address + data_len < ex_map_tail:
-                print('-> writing data into an existing segment at 0x%x' % (address))
-                self.uc.mem_write(address, data)
-                return
-            map_base = ex_map_tail
+        while '0x%x' % map_base in self.mapped_segment:
+            map_base += 0xffffff + 1
 
-        map_tail = map_base + 0xffffff + 1
+        if map_base > address + data_len:
+            print('-> writing an already mapped segment at 0x%x' % address)
+            self.uc.mem_write(address, data)
+        else:
+            map_tail = map_base + 0xffffff + 1
+            self.mapped_segment['0x%x' % map_base] = 1
 
-        while address + data_len > map_tail:
-            map_tail += 0xffffff + 1
+            while address + data_len > map_tail:
+                if '0x%x' % map_tail in self.mapped_segment:
+                    break
+                self.mapped_segment['0x%x' % map_tail] = 1
+                map_tail += 0xffffff + 1
 
-        print('-> mapping 0x%x at 0x%x' % (data_len, map_base))
-        self.uc.mem_map(map_base, map_tail - map_base)
-        self.uc.mem_write(address, data)
-        self.mapped_segment['0x%x' % map_base] = map_tail
+            print('-> mapping 0x%x at 0x%x' % (map_tail - map_base, map_base))
+            self.uc.mem_map(map_base, map_tail - map_base)
+            self.uc.mem_write(address, data)
 
     def parse_address(self, address):
         if self._secret.module_base < address < self._secret.module_tail:
@@ -116,7 +119,7 @@ class Emu(object):
         self.previous_instr_info['address'] = parsed_address
         self.previous_instr_info['virtual_address'] = address
         op = {}
-        print("-> Tracing instruction at 0x%x, instruction size = 0x%x" % (parsed_address, size))
+        print("-> Tracing instruction at 0x%x (0x%x), instruction size = 0x%x" % (parsed_address, address, size))
         for i in self.md.disasm(bytes(uc.mem_read(address, size)), address):
             print("0x%x:\t%s\t%s" % (parsed_address, i.mnemonic, i.op_str))
             if len(i.operands) > 0:
@@ -205,8 +208,8 @@ class Emu(object):
 
     def _start_emu(self, s, e):
         try:
+            print('-> emulation started at 0x%x (0x%x)' % (s, self.parse_address(s)))
             self.uc.emu_start(s, e)
         except Exception as e:
             self.uc.emu_stop()
-            print('-> emu error:')
-            print(e)
+            print('-> emu error: %s' % e)
