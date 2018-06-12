@@ -135,7 +135,7 @@ class Emu(object):
                 if self._bv.is_valid_offset(addr):
                     self._bv.navigate('Graph:' + self._bv.view_type, addr)
             except:
-                print('-> hook memory access: failed to read at 0x%x' % addr)
+                print('-> set current address: failed to read at 0x%x' % addr)
 
     def hook_mem_access(self, uc, access, address, size, value, user_data):
         if access == UC_MEM_WRITE:
@@ -152,8 +152,11 @@ class Emu(object):
             except:
                 pass
         else:
-            print("-> Memory is being READ at 0x%x, data size = %u, data value = 0x%x"
-                  % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
+            try:
+                print("-> Memory is being READ at 0x%x, data size = %u, data value = 0x%x"
+                      % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
+            except:
+                print('-> hook mem access: failed to read at 0x%x' % address)
 
     def start(self, exit=0):
         if exit > 0:

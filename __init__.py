@@ -3,7 +3,6 @@ import frida
 import os
 import shutil
 import time
-import utils
 
 from binaryninja import *
 
@@ -163,15 +162,7 @@ class SecRet(object):
                 if data is None or len(data) == 0:
                     ptr = None
                 else:
-                    new_data_offset = len(bv.parent_view)
-                    if self.segments_start == 0:
-                        self.segments_start = new_data_offset
-
-                    bv.parent_view.insert(new_data_offset, data)
-                    bv.add_user_segment(ptr, len(data), new_data_offset, len(data), 7)
-
-                    segment = bv.get_segment_at(ptr)
-                    self.current_segments.append(segment)
+                    self.add_segment(ptr, data)
             else:
                 ptr = None
 
@@ -195,6 +186,7 @@ class SecRet(object):
 
     def restore_session(self, bv, addr):
         self.bv = bv
+        self.emulator = None
         self.clean_segments(bv)
         dumps_path = session_path + ('/0x%4x' % addr)
         with open(dumps_path + '/context.json', 'r') as f:
