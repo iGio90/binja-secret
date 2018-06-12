@@ -31,6 +31,9 @@ class Emu(object):
 
         self._context_setup()
 
+    def apply_patch(self, addr, patch):
+        self.uc.mem_write(addr + self._secret.module_base, patch)
+
     def _context_setup(self):
         last_mapped_off = 0
 

@@ -16,8 +16,16 @@ There are certain situations in which is hard to dig through memory due to targe
 * each instruction emulated will be filled by a comment highlighting registers values and memory accesses (r/w)
 
 
-* it add some more little useful stuffs to dig in memory
+### Some more goodies
 
+* jump to pointer
+* keystone patch for optimal B/BL/BLX
+
+
+###  TODO
+
+* everything is hardcoded to work on ARM arch / ARM mode
+* remove emulated instructions highlight
 
 ### Built on top of
 * Binary ninja

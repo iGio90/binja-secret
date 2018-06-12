@@ -5,6 +5,7 @@ import shutil
 import time
 
 from binaryninja import *
+from keystone import *
 
 session_path = os.path.dirname(os.path.realpath(__file__)) + '/session'
 
@@ -185,6 +186,20 @@ class SecRet(object):
             print('-> jumping to ' + hex(ptr))
             bv.navigate(nav_view + bv.view_type, ptr)
 
+    def keystone_patch(self, bv, addr=0):
+        input_widget = TextLineField("")
+        get_form_input([input_widget], "ASM code")
+        if input_widget.result is not None:
+            try:
+                ks = Ks(KS_ARCH_ARM, KS_MODE_ARM)
+                encoding, count = ks.asm(bytes(input_widget.result), addr=addr)
+                p = ''.join('{:02x}'.format(x) for x in encoding).decode('hex')
+                bv.write(addr, p)
+                if self.emulator is not None:
+                    self.emulator.apply_patch(addr, p)
+            except KsError as e:
+                log_error("-> error: %s" % e)
+
     def print_instruction_info(self, bv, addr=0):
         try:
             funct = bv.get_functions_containing(addr)[0]
@@ -244,4 +259,5 @@ PluginCommand.register_for_address('** emulate to selected**', '', s.emulate, la
 PluginCommand.register_for_address('** emulate next**', '', s.emulate_next, lambda x, y: s.emulator is not None or s.current_function_address == y)
 PluginCommand.register_for_address('** emulate selected **', '', s.emulate_instr, lambda x, y: s.current_function is not None and s.current_function_address != y)
 PluginCommand.register_for_address('** instruction info **', '', s.print_instruction_info)
+PluginCommand.register_for_address('** keystone patch **', '', s.keystone_patch)
 PluginCommand.register_for_address('** jump to ptr **', '', s.jump_to_ptr)
