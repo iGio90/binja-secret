@@ -29,6 +29,7 @@ class SecRet(object):
         self.current_function_address = 0
         self.current_context = {}
 
+        self.target_package = ''
         self.module_base = 0
         self.module_size = 0
         self.module_tail = 0
@@ -71,7 +72,8 @@ class SecRet(object):
                 s.module_size = int(parts[3])
                 s.module_tail = s.module_base + s.module_size
                 with open(session_path + '/info.json', 'w') as f:
-                    f.write(json.dumps({'base': s.module_base, 'size': s.module_size}))
+                    f.write(json.dumps({'base': s.module_base, 'size': s.module_size,
+                                        'module_name': s.module_name, 'package': s.target_package}))
         else:
             print(message)
 
@@ -87,17 +89,30 @@ class SecRet(object):
 
     def attach(self, bv, address=0):
         self.bv = bv
-        self.clean_session()
 
+        suggested_module = ''
+        suggested_package = ''
+        if os.path.exists(session_path + '/info.json'):
+            with open(session_path + '/info.json', 'r') as f:
+                j = json.loads(f.read())
+                if 'module_name' in j:
+                    suggested_module = j['module_name']
+                if 'package' in j:
+                    suggested_package = j['package']
+
+        self.clean_session()
         self.frida_device = frida.get_usb_device(5)
 
         if self.module_name is None:
-            input_widget = TextLineField("")
+            input_widget = TextLineField(suggested_module)
             get_form_input([input_widget], "Target module name")
             if input_widget.result is not None:
                 self.module_name = input_widget.result
                 if not self.module_name.endswith('.so'):
                     self.module_name += '.so'
+            elif len(suggested_module) > 0:
+                log_error('-> using previous session module name: %s' % suggested_module)
+                self.module_name = suggested_module
             else:
                 log_error('-> module name cannot be empty')
                 return
@@ -108,12 +123,21 @@ class SecRet(object):
         apps = self.frida_device.enumerate_applications()
         apps = sorted(apps, key=lambda x: x.name, reverse=False)
         apps_labels = []
+        suggested_app = None
         for app in apps:
+            if app.identifier == suggested_package:
+                suggested_app = app
             apps_labels.append(app.name.encode('ascii', 'ignore').decode('ascii'))
+
+        if suggested_app is not None:
+            apps_labels.insert(0, suggested_app.name.encode('ascii', 'ignore').decode('ascii'))
+            apps.insert(0, suggested_app)
+
         choice_f = ChoiceField("-> spawn and attach", apps_labels)
         get_form_input([choice_f], "Target app name")
         if choice_f.result is not None:
             package_name = apps[choice_f.result].identifier
+            self.target_package = package_name
             pid = self.frida_device.spawn([package_name])
             process = self.frida_device.attach(pid)
             print("-> Frida attached.")
@@ -272,7 +296,7 @@ class SecRet(object):
             if uc is None:
                 c += '%s = %s' % (regs[reg].upper(), self.current_context[regs[reg]])
             else:
-                c += '%s = %x' % (regs[reg].upper, uc.reg_read(reg))
+                c += '%s = 0x%x' % (regs[reg].upper(), uc.reg_read(reg))
         self.current_function.set_comment_at(addr, c)
 
     def stop(self, bv):

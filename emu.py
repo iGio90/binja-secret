@@ -56,6 +56,8 @@ class Emu(object):
 
         self.uc.hook_add(UC_HOOK_CODE, self.hook_instr)
         self.uc.hook_add(UC_HOOK_MEM_WRITE | UC_HOOK_MEM_READ, self.hook_mem_access)
+        self.uc.hook_add(UC_HOOK_MEM_READ_UNMAPPED | UC_HOOK_MEM_WRITE_UNMAPPED |
+                         UC_HOOK_MEM_FETCH_UNMAPPED, self.hook_mem_unmapped)
 
     def map_segment(self, address, data):
         data_len = len(data)
@@ -201,12 +203,17 @@ class Emu(object):
                 if self._secret.frida_script is not None:
                     self._secret.dump_segment(address)
 
+    def hook_mem_unmapped(self, uc, access, address, size, value, user_data):
+        print('-> reading to an unmapped memory region at 0x%x' % address)
+        if self._secret.frida_script is not None:
+            self._secret.dump_segment(address)
+
     def start(self, exit=0):
         if exit > 0:
             self.exit = self._secret.module_base + exit
-        self._start_emu(self.current_virtual_address, self.exit)
-        self._bv.navigate('Graph:' + self._bv.view_type, self.exit)
-        self._secret.comment_context_at_address(exit, self.uc)
+        if self._start_emu(self.current_virtual_address, self.exit):
+            self._bv.navigate('Graph:' + self._bv.view_type, self.exit)
+            self._secret.comment_context_at_address(exit, self.uc)
 
     def emulate_instr(self, addr):
         self.current_address = addr
@@ -221,7 +228,9 @@ class Emu(object):
         try:
             print('-> emulation started at 0x%x (0x%x)' % (s, self.parse_address(s)))
             self.uc.emu_start(s, e)
+            return True
         except Exception as e:
             if self._bv.is_valid_offset(self.current_address):
                 self._bv.navigate('Graph:' + self._bv.view_type, self.current_address)
             print('-> emu error: %s' % e)
+            return False
