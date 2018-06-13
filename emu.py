@@ -122,14 +122,16 @@ class Emu(object):
                         op[s] = ''
                     except:
                         continue
-        self.previous_instr_info['regs'] = []
-        c = ''
-        for reg in op:
-            if len(c) > 0:
-                c += '\n'
-            uc_reg = utils.get_uc_reg(self.uc_arch, reg)
-            c += reg + ' = ' + ('0x%x' % uc.reg_read(uc_reg))
-            self.previous_instr_info['regs'].append({'r': reg, 'o': uc_reg})
+        c = None
+        if address != self.entry:
+            self.previous_instr_info['regs'] = []
+            c = ''
+            for reg in op:
+                if len(c) > 0:
+                    c += '\n'
+                uc_reg = utils.get_uc_reg(self.uc_arch, reg)
+                c += reg + ' = ' + ('0x%x' % uc.reg_read(uc_reg))
+                self.previous_instr_info['regs'].append({'r': reg, 'o': uc_reg})
         self.set_current_address(parsed_address, c)
 
     def set_current_address(self, addr, comment=None, hightlight=True):
@@ -148,6 +150,8 @@ class Emu(object):
         try:
             function = self._bv.get_functions_containing(addr)[0]
             oc = function.get_comment_at(addr)
+            print('old comm')
+            print(oc)
             if oc is None:
                 oc = ''
             oc += c
@@ -204,7 +208,7 @@ class Emu(object):
             self.exit = self._secret.module_base + exit
         self._start_emu(self.current_virtual_address, self.exit)
         self._bv.navigate('Graph:' + self._bv.view_type, self.exit)
-        self._secret.comment_context_at_address(self.exit, self.uc)
+        self._secret.comment_context_at_address(exit, self.uc)
 
     def emulate_instr(self, addr):
         self.current_address = addr

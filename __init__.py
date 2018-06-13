@@ -270,7 +270,7 @@ class SecRet(object):
             if len(c) > 0:
                 c += '\n'
             if uc is None:
-                c += '%s = %s' % (regs[reg].upper, self.current_context[regs[reg]])
+                c += '%s = %s' % (regs[reg].upper(), self.current_context[regs[reg]])
             else:
                 c += '%s = %x' % (regs[reg].upper, uc.reg_read(reg))
         self.current_function.set_comment_at(addr, c)
