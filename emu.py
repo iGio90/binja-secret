@@ -165,7 +165,12 @@ class Emu(object):
             try:
                 function = self._bv.get_functions_containing(self.current_address)[0]
                 c = function.get_comment_at(self.current_address)
-                cc = ('\n\n*0x%x = 0x%x' % (address, value))
+                try:
+                    c.index('\n\n')
+                    cc = ''
+                except:
+                    cc = '\n'
+                cc += ('\n*0x%x = 0x%x' % (address, value))
                 if c is not None:
                     c += cc
                 else:
