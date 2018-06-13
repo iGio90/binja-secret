@@ -104,8 +104,8 @@ class Emu(object):
         if self.previous_instr_info['address'] > 0:
             c = '\n'
             for r in self.previous_instr_info['regs']:
-                c += '\n%s 0x%x' % (r['r'], uc.reg_read(r['o']))
-            self.append_comment(c, self.previous_instr_info['address'])
+                c += '\n%s = 0x%x' % (r['r'], uc.reg_read(r['o']))
+            self.append_comment(self.previous_instr_info['address'], c)
 
         self.previous_instr_info['address'] = parsed_address
         self.previous_instr_info['virtual_address'] = address
@@ -150,8 +150,6 @@ class Emu(object):
         try:
             function = self._bv.get_functions_containing(addr)[0]
             oc = function.get_comment_at(addr)
-            print('old comm')
-            print(oc)
             if oc is None:
                 oc = ''
             oc += c
