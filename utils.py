@@ -29,3 +29,7 @@ def get_reg_tag(arch):
         return "UC_SPARC_REG_"
     elif arch == UC_ARCH_X86:
         return "UC_X86_REG_"
+
+
+def get_uc_reg(arch, reg):
+    return getattr(get_arch_consts(arch), get_reg_tag(arch) + reg.upper())

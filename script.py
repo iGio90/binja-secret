@@ -26,17 +26,7 @@ def get_script(module_name, target):
                 }
             }
             
-            var trsegs = Module.enumerateRangesSync(moduleName, 'r--');
-            for (r in trsegs) {
-                ranges[trsegs[r]['base']] = trsegs[r];
-            }
-            
-            console.log(JSON.stringify(ranges));
-            
             for (r in ranges) {
-                console.log(r);
-                console.log(ranges[r]);
-                
                 var range = ranges[r];
                 try {
                     send("2:::" + target + ":::" + range['base'], Memory.readByteArray(range['base'], range['size']));

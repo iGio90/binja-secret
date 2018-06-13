@@ -43,28 +43,15 @@ class Emu(object):
     def _context_setup(self):
         stlist = sorted(self._bv.segments, key=lambda x: x.start, reverse=False)
         for segment in stlist:
+            start = segment.start
             if segment.start < self._secret.module_size:
-                # assuming frida will dump target module we will have it mapped later
-                continue
+                start += self._secret.module_base
             print('-> segment start at 0x%x' % segment.start)
-            self.map_segment(segment.start, self._bv.read(segment.start, segment.length))
+            self.map_segment(start, self._bv.read(segment.start, segment.length))
 
-        self.uc.reg_write(UC_ARM_REG_R0, int(self._secret.current_context['r0'], 16))
-        self.uc.reg_write(UC_ARM_REG_R1, int(self._secret.current_context['r1'], 16))
-        self.uc.reg_write(UC_ARM_REG_R2, int(self._secret.current_context['r2'], 16))
-        self.uc.reg_write(UC_ARM_REG_R3, int(self._secret.current_context['r3'], 16))
-        self.uc.reg_write(UC_ARM_REG_R4, int(self._secret.current_context['r4'], 16))
-        self.uc.reg_write(UC_ARM_REG_R5, int(self._secret.current_context['r5'], 16))
-        self.uc.reg_write(UC_ARM_REG_R6, int(self._secret.current_context['r6'], 16))
-        self.uc.reg_write(UC_ARM_REG_R7, int(self._secret.current_context['r7'], 16))
-        self.uc.reg_write(UC_ARM_REG_R8, int(self._secret.current_context['r8'], 16))
-        self.uc.reg_write(UC_ARM_REG_R9, int(self._secret.current_context['r9'], 16))
-        self.uc.reg_write(UC_ARM_REG_R10, int(self._secret.current_context['r10'], 16))
-        self.uc.reg_write(UC_ARM_REG_R11, int(self._secret.current_context['r11'], 16))
-        self.uc.reg_write(UC_ARM_REG_R12, int(self._secret.current_context['r12'], 16))
-        self.uc.reg_write(UC_ARM_REG_SP, int(self._secret.current_context['sp'], 16))
-        self.uc.reg_write(UC_ARM_REG_PC, int(self._secret.current_context['pc'], 16))
-        self.uc.reg_write(UC_ARM_REG_LR, int(self._secret.current_context['lr'], 16))
+        for reg in self._secret.current_context:
+            uc_reg = utils.get_uc_reg(self.uc_arch, reg)
+            self.uc.reg_write(uc_reg, int(self._secret.current_context[reg], 16))
 
         self.uc.hook_add(UC_HOOK_CODE, self.hook_instr)
         self.uc.hook_add(UC_HOOK_MEM_WRITE | UC_HOOK_MEM_READ, self.hook_mem_access)
@@ -94,8 +81,11 @@ class Emu(object):
             self.uc.mem_map(map_base, map_tail - map_base)
             self.uc.mem_write(address, data)
 
+    def is_pointer_of_target_module(self, address):
+        return self._secret.module_base < address < self._secret.module_tail
+
     def parse_address(self, address):
-        if self._secret.module_base < address < self._secret.module_tail:
+        if self.is_pointer_of_target_module(address):
             return address - self._secret.module_base
         return address
 
@@ -136,7 +126,7 @@ class Emu(object):
         for reg in op:
             if len(c) > 0:
                 c += '\n'
-            uc_reg = getattr(utils.get_arch_consts(self.uc_arch), utils.get_reg_tag(self.uc_arch) + reg)
+            uc_reg = utils.get_uc_reg(self.uc_arch, reg)
             c += reg + ' = ' + ('0x%x' % uc.reg_read(uc_reg))
             self.previous_instr_info['regs'].append({'r': reg, 'o': uc_reg})
         self.set_current_address(parsed_address, c)
@@ -187,6 +177,14 @@ class Emu(object):
             try:
                 print("-> Memory is being READ at 0x%x, data size = %u, data value = 0x%x"
                       % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
+                if self.is_pointer_of_target_module(address):
+                    print('-> Pointer to target module range. Reading value from target device')
+                    if self._secret.frida_script is None:
+                        print('-> Frida script is not attached')
+                    else:
+                        v = self._secret.frida_script.exports.dumprange(address, size)
+                        print('-> Value from target device: 0x%x' % v)
+                        self._bv.write(address, v)
             except:
                 print('-> hook mem access: failed to read at 0x%x' % address)
                 if self._secret.frida_script is not None:
