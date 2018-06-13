@@ -3,9 +3,13 @@ import frida
 import os
 import shutil
 import time
+import utils
 
+from capstone import *
 from binaryninja import *
 from keystone import *
+from unicorn import *
+
 
 session_path = os.path.dirname(os.path.realpath(__file__)) + '/session'
 
@@ -29,6 +33,11 @@ class SecRet(object):
         self.module_size = 0
         self.module_tail = 0
 
+        self.uc_arch = UC_ARCH_ARM
+        self.uc_mode = UC_MODE_ARM
+        self.cs_arch = CS_ARCH_ARM
+        self.cs_mode = CS_MODE_ARM
+
         self.bv = None
         self.emulator = None
 
@@ -44,8 +53,9 @@ class SecRet(object):
                 with open(session_path + '/context.json', 'w') as f:
                     f.write(parts[2])
 
-                s.set_current_function(int(hex_addr, 16))
                 s.current_context = json.loads(parts[2])
+                s.set_current_function(int(hex_addr, 16))
+                s.comment_context_at_address(int(hex_addr, 16))
 
                 s.bv.navigate('Graph:' + s.bv.view_type, int(hex_addr, 16))
             elif parts[0] == '2':
@@ -231,6 +241,7 @@ class SecRet(object):
             self.module_tail = self.module_base + self.module_size
 
         self.set_current_function(addr)
+        self.comment_context_at_address(addr)
         for f in os.listdir(session_path):
             if f.startswith('0x'):
                 with open(session_path + '/' + f, 'rb') as ff:
@@ -249,6 +260,20 @@ class SecRet(object):
                 self.current_function = None
         else:
             self.current_function = None
+
+    def comment_context_at_address(self, addr, uc=None):
+        regs = {}
+        c = ''
+        for reg in self.current_context:
+            regs[utils.get_uc_reg(self.uc_arch, reg)] = reg
+        for reg in sorted(regs):
+            if len(c) > 0:
+                c += '\n'
+            if uc is None:
+                c += '%s = %s' % (regs[reg].upper, self.current_context[regs[reg]])
+            else:
+                c += '%s = %x' % (regs[reg].upper, uc.reg_read(reg))
+        self.current_function.set_comment_at(addr, c)
 
     def stop(self, bv):
         self.frida_device = None

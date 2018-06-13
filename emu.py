@@ -1,7 +1,6 @@
 from binaryninja import *
 from capstone import *
 from unicorn import *
-from unicorn.arm_const import *
 
 import utils
 
@@ -11,8 +10,10 @@ class Emu(object):
         self._secret = s
         self._bv = bv
 
-        self.uc_arch = UC_ARCH_ARM
-        self.uc_mode = UC_MODE_ARM
+        self.uc_arch = s.uc_arch
+        self.uc_mode = s.uc_mode
+        self.cs_arch = s.cs_arch
+        self.cs_mode = s.cs_mode
 
         self.entry = self._secret.module_base + self._secret.current_function_address
         self.exit = self._secret.module_base + ep
@@ -21,7 +22,7 @@ class Emu(object):
             self.exit = self.exit | 1
 
         self.uc = Uc(self.uc_arch, self.uc_mode)
-        self.md = Cs(CS_ARCH_ARM, CS_MODE_ARM)
+        self.md = Cs(self.cs_arch, self.cs_mode)
         self.md.detail = True
 
         self.current_address = self._secret.current_function_address
@@ -140,13 +141,8 @@ class Emu(object):
                 function.set_auto_instr_highlight(addr, HighlightColor(red=0x60, blue=0xc3, green=0x6e))
             if comment is not None:
                 function.set_comment_at(addr, comment)
-            self._bv.navigate('Graph:' + self._bv.view_type, addr)
         except:
-            try:
-                if self._bv.is_valid_offset(addr):
-                    self._bv.navigate('Graph:' + self._bv.view_type, addr)
-            except:
-                print('-> set current address: failed to read at 0x%x' % addr)
+            pass
 
     def append_comment(self, addr, c):
         try:
@@ -156,8 +152,8 @@ class Emu(object):
                 oc = ''
             oc += c
             function.set_comment_at(addr, oc)
-        except:
-            pass
+        except Exception as e:
+            print('-> failed to append comment: %s' % e)
 
     def hook_mem_access(self, uc, access, address, size, value, user_data):
         if access == UC_MEM_WRITE:
@@ -179,12 +175,25 @@ class Emu(object):
                       % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
                 if self.is_pointer_of_target_module(address):
                     print('-> Pointer to target module range. Reading value from target device')
-                    if self._secret.frida_script is None:
-                        print('-> Frida script is not attached')
-                    else:
-                        v = self._secret.frida_script.exports.dumprange(address, size)
-                        print('-> Value from target device: 0x%x' % v)
-                        self._bv.write(address, v)
+                    try:
+                        if self._secret.frida_script is None:
+                            print('-> Frida script is not attached')
+                        else:
+                            v = self._secret.frida_script.exports.dumprange(address, size)
+                            self._bv.write(address, v)
+                            if size == 4 or size == 8:
+                                br = BinaryReader(self._bv)
+                                br.seek(address)
+                                ptr = br.read32le()
+                                print('-> Data value from device could be a pointer. Checking for valid memory '
+                                      'regions at 0x%x' % ptr)
+                                if self._bv.is_valid_offset(ptr):
+                                    print('-> 0x%x is already mapped' % ptr)
+                                else:
+                                    self._secret.dump_segment(ptr)
+                            print('-> ')
+                    except Exception as e:
+                        print('-> error reading value from device: %s' % e)
             except:
                 print('-> hook mem access: failed to read at 0x%x' % address)
                 if self._secret.frida_script is not None:
@@ -194,6 +203,8 @@ class Emu(object):
         if exit > 0:
             self.exit = self._secret.module_base + exit
         self._start_emu(self.current_virtual_address, self.exit)
+        self._bv.navigate('Graph:' + self._bv.view_type, self.exit)
+        self._secret.comment_context_at_address(self.exit, self.uc)
 
     def emulate_instr(self, addr):
         self.current_address = addr
@@ -209,5 +220,6 @@ class Emu(object):
             print('-> emulation started at 0x%x (0x%x)' % (s, self.parse_address(s)))
             self.uc.emu_start(s, e)
         except Exception as e:
-            self.uc.emu_stop()
+            if self._bv.is_valid_offset(self.current_address):
+                self._bv.navigate('Graph:' + self._bv.view_type, self.current_address)
             print('-> emu error: %s' % e)
