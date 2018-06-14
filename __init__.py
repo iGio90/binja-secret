@@ -19,6 +19,9 @@ class SecRet(object):
         self.frida_device = None
         self.targets = {}
 
+        self.suggested_module = ''
+        self.suggested_package = ''
+
         self.module_name = None
         self.frida_script = None
         self.dumps_path = ''
@@ -90,13 +93,11 @@ class SecRet(object):
     def attach(self, bv, address=0):
         self.bv = bv
 
-        suggested_module = ''
-        suggested_package = ''
-        if os.path.exists(session_path + '/info.json'):
+        if self.suggested_package == '' and os.path.exists(session_path + '/info.json'):
             with open(session_path + '/info.json', 'r') as f:
                 j = json.loads(f.read())
                 if 'module_name' in j:
-                    suggested_module = j['module_name']
+                    self.suggested_module = j['module_name']
                 if 'package' in j:
                     suggested_package = j['package']
 
@@ -104,15 +105,15 @@ class SecRet(object):
         self.frida_device = frida.get_usb_device(5)
 
         if self.module_name is None:
-            input_widget = TextLineField(suggested_module)
+            input_widget = TextLineField(self.suggested_module)
             get_form_input([input_widget], "Target module name")
             if input_widget.result is not None:
                 self.module_name = input_widget.result
                 if not self.module_name.endswith('.so'):
                     self.module_name += '.so'
-            elif len(suggested_module) > 0:
-                log_error('-> using previous session module name: %s' % suggested_module)
-                self.module_name = suggested_module
+            elif len(self.suggested_module) > 0:
+                log_error('-> using previous session module name: %s' % self.suggested_module)
+                self.module_name = self.suggested_module
             else:
                 log_error('-> module name cannot be empty')
                 return
@@ -125,7 +126,7 @@ class SecRet(object):
         apps_labels = []
         suggested_app = None
         for app in apps:
-            if app.identifier == suggested_package:
+            if app.identifier == self.suggested_package:
                 suggested_app = app
             apps_labels.append(app.name.encode('ascii', 'ignore').decode('ascii'))
 
@@ -147,6 +148,9 @@ class SecRet(object):
             self.frida_device.resume(package_name)
             self.frida_script.on('message', self._on_frida_message)
             self.frida_script.load()
+
+            self.suggested_package = package_name
+            self.suggested_module = self.module_name
 
     def clean_session(self):
         self.set_current_function(0)

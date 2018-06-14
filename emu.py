@@ -183,24 +183,38 @@ class Emu(object):
                 print("-> Memory is being READ at 0x%x, data size = %u, data value = 0x%x"
                       % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
                 if self.is_pointer_of_target_module(address):
-                    print('-> Pointer to target module range. Reading value from target device')
+                    print('-> Pointer to target module range. Reading value from device')
                     try:
                         if self._secret.frida_script is None:
                             print('-> Frida script is not attached')
                         else:
-                            v = self._secret.frida_script.exports.dumprange(address, size)
-                            self._bv.write(address, v)
-                            if size == 4 or size == 8:
-                                br = BinaryReader(self._bv)
-                                br.seek(address)
-                                ptr = br.read32le()
-                                print('-> Data value from device could be a pointer. Checking for valid memory '
-                                      'regions at 0x%x' % ptr)
-                                if self._bv.is_valid_offset(ptr):
-                                    print('-> 0x%x is already mapped' % ptr)
+                            br = BinaryReader(self._bv)
+                            br.seek(address)
+                            cur = self._bv.read(address, size)
+                            dev = self._secret.frida_script.exports.dumprange(address, size)
+
+                            cho = ['session -> 0x%x' % cur, 'device -> 0x%x' % dev]
+                            choice_f = ChoiceField("", cho)
+                            get_form_input([choice_f], "")
+                            if choice_f.result is not None:
+                                if choice_f.result == 0:
+                                    res = cur
                                 else:
-                                    self._secret.dump_segment(ptr)
-                            print('-> ')
+                                    res = dev
+                            else:
+                                res = dev
+                            if res == dev:
+                                self._bv.write(address, dev)
+
+                            if size == 4 or size == 8:
+                                ptr = br.read32le()
+                                if ptr > self._secret.module_size:
+                                    print('-> Data value from device could be a pointer. Checking for valid memory '
+                                          'regions at 0x%x' % ptr)
+                                    if self._bv.is_valid_offset(ptr):
+                                        print('-> 0x%x is already mapped' % ptr)
+                                    else:
+                                        self._secret.dump_segment(ptr)
                     except Exception as e:
                         print('-> error reading value from device: %s' % e)
             except:
