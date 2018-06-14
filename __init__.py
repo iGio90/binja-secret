@@ -99,7 +99,7 @@ class SecRet(object):
                 if 'module_name' in j:
                     self.suggested_module = j['module_name']
                 if 'package' in j:
-                    suggested_package = j['package']
+                    self.suggested_package = j['package']
 
         self.clean_session()
         self.frida_device = frida.get_usb_device(5)
@@ -107,7 +107,7 @@ class SecRet(object):
         if self.module_name is None:
             input_widget = TextLineField(self.suggested_module)
             get_form_input([input_widget], "Target module name")
-            if input_widget.result is not None:
+            if input_widget.result is not None and input_widget.result is not '':
                 self.module_name = input_widget.result
                 if not self.module_name.endswith('.so'):
                     self.module_name += '.so'
