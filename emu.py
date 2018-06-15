@@ -264,6 +264,7 @@ class Emu(object):
         self._start_emu(self.current_virtual_address, self.current_virtual_address + 8)
 
     def destroy(self):
+        self.commented_offsets[self.current_exit] = 1
         for o in self.commented_offsets:
             try:
                 function = self._bv.get_functions_containing(o)[0]
