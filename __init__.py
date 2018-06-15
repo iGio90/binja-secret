@@ -91,6 +91,9 @@ class SecRet(object):
         self.current_segments.append(segment)
 
     def attach(self, bv, address=0):
+        if self.emulator is not None:
+            self.emulator = None
+
         self.bv = bv
 
         if self.suggested_package == '' and os.path.exists(session_path + '/info.json'):
@@ -101,7 +104,7 @@ class SecRet(object):
                 if 'package' in j:
                     self.suggested_package = j['package']
 
-        self.clean_session()
+        self.clean_session(bv, address)
         self.frida_device = frida.get_usb_device(5)
 
         if self.module_name is None:
@@ -112,7 +115,7 @@ class SecRet(object):
                 if not self.module_name.endswith('.so'):
                     self.module_name += '.so'
             elif len(self.suggested_module) > 0:
-                log_error('-> using previous session module name: %s' % self.suggested_module)
+                print('-> using previous session module name: %s' % self.suggested_module)
                 self.module_name = self.suggested_module
             else:
                 log_error('-> module name cannot be empty')
@@ -151,14 +154,6 @@ class SecRet(object):
 
             self.suggested_package = package_name
             self.suggested_module = self.module_name
-
-    def clean_session(self):
-        self.set_current_function(0)
-        if os.path.exists(session_path):
-            if self.bv is not None:
-                self.clean_segments(self.bv)
-            shutil.rmtree(session_path)
-        os.mkdir(session_path)
 
     def clean_segments(self, bv):
         if len(self.current_segments) > 0:
@@ -255,25 +250,18 @@ class SecRet(object):
         print(funct.get_call_stack_adjustment(addr))
         print(funct.get_lifted_il_at(addr))
 
-    def restore_session(self, bv, addr):
+    def clean_session(self, bv, addr=0):
         self.bv = bv
-        self.emulator = None
         self.clean_segments(bv)
-        with open(session_path + '/context.json', 'r') as f:
-            self.current_context = json.loads(f.read())
-
-        with open(session_path + '/info.json', 'r') as f:
-            info = json.loads(f.read())
-            self.module_base = info['base']
-            self.module_size = info['size']
-            self.module_tail = self.module_base + self.module_size
-
-        self.set_current_function(addr)
-        self.comment_context_at_address(addr)
-        for f in os.listdir(session_path):
-            if f.startswith('0x'):
-                with open(session_path + '/' + f, 'rb') as ff:
-                    self.add_segment(int(f, 16), ff.read())
+        if self.emulator is not None:
+            self.emulator.destroy()
+            self.emulator = None
+        self.set_current_function(0)
+        if os.path.exists(session_path):
+            if self.bv is not None:
+                self.clean_segments(self.bv)
+            shutil.rmtree(session_path)
+        os.mkdir(session_path)
 
     def set_current_function(self, addr):
         self.current_function_address = addr
@@ -310,7 +298,7 @@ class SecRet(object):
 s = SecRet()
 
 PluginCommand.register_for_address('** attach **', '', s.attach)
-PluginCommand.register_for_address('** restore session **', '', s.restore_session, lambda x, y: os.path.exists(session_path))
+PluginCommand.register_for_address('** clean session **', '', s.clean_session, lambda x, y: os.path.exists(session_path))
 PluginCommand.register_for_address('** emulate to selected**', '', s.emulate, lambda x, y: s.current_function is not None and s.current_function_address != y)
 PluginCommand.register_for_address('** emulate next**', '', s.emulate_next, lambda x, y: s.emulator is not None or s.current_function_address == y)
 PluginCommand.register_for_address('** emulate selected **', '', s.emulate_instr, lambda x, y: s.current_function is not None and s.current_function_address != y)

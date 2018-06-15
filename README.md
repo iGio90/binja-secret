@@ -15,6 +15,16 @@ There are certain situations in which is hard to dig through memory due to targe
 * we can restore the context at any time
 * each instruction emulated will be filled by a comment highlighting registers values and memory accesses (r/w)
 
+### Note
+
+Running an emulated context maintaining untouched it's memory layout it's not simple. The emulator uses Binary Ninja loaded binary to emulate instruction (alternatively, could be possible to emulate from the virtual address of the device knowing at prior the base of the module). 
+This, have pros and cons. Taking as example the scenario i was facing while developing the plugin:
+
+* emulating at virtual device addresses was a bad idea, data and segments could be manipulated before entering our target entry point
+* assuming this, we can still map the module segment to our context and align addresses
+* This solved all the problems but created another big one. When the emulated context attempt to read or write from/on a pointer of target module weird situations could happens.
+* To avoid this problem, a dialog will appear every time the emulator attempt to **read** on an address which point to our target which will allow to choose what to use between binja offset (0x0), virtual address on the emulated context (0x??) or read that pointer on the device.
+* In addition to this - the plugin is not mapping all the segments on the emulated context but only the one actually used. Anytime the emulator attempt to read to an unmapped region, those regions will be pulled and mapped dinamycalli from the device by keeping the same virtual address
 
 ### Some more goodies
 
@@ -32,6 +42,7 @@ There are certain situations in which is hard to dig through memory due to targe
 * Frida
 * Unicorn emulator
 * Capstone engine
+* Keystone engine
 
 ### Video demo
 

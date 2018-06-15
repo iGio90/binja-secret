@@ -27,6 +27,9 @@ class Emu(object):
 
         self.current_address = self._secret.current_function_address
         self.current_virtual_address = self.entry
+        self.current_exit = ep
+
+        self.commented_offsets = {self._secret.current_function_address: 1}
 
         self.break_steps = 0
         self.previous_instr_info = {
@@ -144,6 +147,7 @@ class Emu(object):
             if hightlight:
                 function.set_auto_instr_highlight(addr, HighlightColor(red=0x60, blue=0xc3, green=0x6e))
             if comment is not None:
+                self.commented_offsets[addr] = 1
                 function.set_comment_at(addr, comment)
         except:
             pass
@@ -184,48 +188,64 @@ class Emu(object):
                       % (address, size, int(self._bv.read(address, size).encode('hex'), 16)))
                 if self.is_pointer_of_target_module(address):
                     print('-> Pointer to target module range. Reading value from device')
-                    try:
-                        if self._secret.frida_script is None:
-                            print('-> Frida script is not attached')
-                        else:
-                            br = BinaryReader(self._bv)
-                            br.seek(address)
-                            cur = self._bv.read(address, size)
+                    self._bv.navigate('Graph:' + self._bv.view_type, self.current_address)
+
+                    br = BinaryReader(self._bv)
+                    br.seek(address - self._secret.module_base)
+                    bj = br.read(size)
+
+                    choices = ['module -> 0x%s' % bj.encode('hex')]
+
+                    br.seek(address)
+                    vt = br.read(size)
+                    choices.append('virtual -> 0x%s' % vt.encode('hex'))
+
+                    dev = bytes()
+                    if self._secret.frida_script is not None:
+                        try:
                             dev = self._secret.frida_script.exports.dumprange(address, size)
+                            choices.append('device -> 0x%s' % dev.encode('hex'))
+                        except:
+                            pass
 
-                            cho = ['session -> 0x%x' % cur, 'device -> 0x%x' % dev]
-                            choice_f = ChoiceField("", cho)
-                            get_form_input([choice_f], "")
-                            if choice_f.result is not None:
-                                if choice_f.result == 0:
-                                    res = cur
+                    choice_f = ChoiceField("-> write and use", choices)
+                    get_form_input([choice_f], "Target app name")
+
+                    if choice_f.result is not None:
+                        bw = BinaryWriter(self._bv)
+                        bw.seek(address)
+                        if choice_f.result == 0:
+                            bw.write(bj)
+                            self.uc.mem_write(address, bj)
+                        elif choice_f.result == 2:
+                            bw.write(dev)
+                            self.uc.mem_write(address, dev)
+
+                        if size == 4:
+                            br.seek(address)
+                            ptr = br.read32le()
+                            if ptr > self._secret.module_size:
+                                print('-> Data value from device could be a pointer. Checking for valid memory '
+                                      'regions at 0x%x' % ptr)
+                                if self._bv.is_valid_offset(ptr):
+                                    print('-> 0x%x is already mapped' % ptr)
                                 else:
-                                    res = dev
-                            else:
-                                res = dev
-                            if res == dev:
-                                self._bv.write(address, dev)
-
-                            if size == 4 or size == 8:
-                                ptr = br.read32le()
-                                if ptr > self._secret.module_size:
-                                    print('-> Data value from device could be a pointer. Checking for valid memory '
-                                          'regions at 0x%x' % ptr)
-                                    if self._bv.is_valid_offset(ptr):
-                                        print('-> 0x%x is already mapped' % ptr)
-                                    else:
-                                        self._secret.dump_segment(ptr)
-                    except Exception as e:
-                        print('-> error reading value from device: %s' % e)
-            except:
-                print('-> hook mem access: failed to read at 0x%x' % address)
-                if self._secret.frida_script is not None:
-                    self._secret.dump_segment(address)
+                                    self._secret.dump_segment(ptr)
+            except Exception as e:
+                print('-> hook mem access: failed to read at 0x%x - err: %s' % (address, e))
+                try:
+                    if self._secret.frida_script is not None:
+                        self._secret.dump_segment(address)
+                except:
+                    pass
 
     def hook_mem_unmapped(self, uc, access, address, size, value, user_data):
         print('-> reading to an unmapped memory region at 0x%x' % address)
-        if self._secret.frida_script is not None:
-            self._secret.dump_segment(address)
+        try:
+            if self._secret.frida_script is not None:
+                self._secret.dump_segment(address)
+        except:
+            pass
 
     def start(self, exit=0):
         if exit > 0:
@@ -243,7 +263,20 @@ class Emu(object):
         self.break_steps = 1
         self._start_emu(self.current_virtual_address, self.current_virtual_address + 8)
 
+    def destroy(self):
+        for o in self.commented_offsets:
+            try:
+                function = self._bv.get_functions_containing(o)[0]
+                function.set_auto_instr_highlight(o, HighlightStandardColor.NoHighlightColor)
+                function.set_comment_at(o, '')
+            except:
+                pass
+        del self.uc
+        del self.commented_offsets
+        del self.mapped_segment
+
     def _start_emu(self, s, e):
+        self.current_exit = e
         try:
             print('-> emulation started at 0x%x (0x%x)' % (s, self.parse_address(s)))
             self.uc.emu_start(s, e)
